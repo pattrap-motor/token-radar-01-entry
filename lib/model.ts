@@ -292,6 +292,48 @@ function capitalFor(p: SnapshotProtocol): number {
   return 25;
 }
 
+/** What one transaction costs in gas on a chain, in whole dollars, at ordinary load. */
+const GAS_USD: Record<string, number> = {
+  Ethereum: 12,
+  Solana: 1,
+  Polygon: 1,
+  Sui: 1,
+  Sonic: 1,
+  xDai: 1,
+  Base: 2,
+  Arbitrum: 2,
+  Optimism: 2,
+  BSC: 2,
+  Binance: 2,
+  Linea: 2,
+  Scroll: 2,
+  'zkSync Era': 2,
+  Avalanche: 3,
+  Tron: 3,
+};
+
+function gasFor(chain: string): number {
+  return GAS_USD[chain] ?? 3;
+}
+
+/** The weekly routine's gas bill on a chain: mainnet is the outlier, the rest round to a dollar. */
+function weeklyGasFor(chain: string): number {
+  return chain === 'Ethereum' ? 3 : 1;
+}
+
+/** The category's main way a farm position loses money, named in the budget step. */
+function riskFor(p: SnapshotProtocol): string {
+  const c = (p.category ?? '').toLowerCase();
+  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return 'smart-contract failure and bad debt in the markets supplied; supplying without borrowing carries no liquidation risk of your own';
+  if (c.includes('dex') || c.includes('swap')) return 'impermanent loss when the pair\'s prices separate, and smart-contract failure';
+  if (c.includes('deriv') || c.includes('perpetual')) return 'funding payments bleeding the margin, and liquidation if the hedge is left unrolled';
+  if (c.includes('basis')) return 'funding flipping against the position, and exchange or contract failure';
+  if (c.includes('bridge')) return 'the bridge contract itself, historically the largest single point of failure in this category';
+  if (c.includes('staking') || c.includes('restak')) return 'slashing, unbonding delays, and the staking receipt trading under its peg';
+  if (c.includes('prediction')) return 'the market resolving against the position; that stake can go to zero';
+  return 'smart-contract failure, and the position earning less than the gas it burns';
+}
+
 /** How long to hold, from the protocol's age: younger protocols get a longer qualifying window. */
 function holdDaysFor(age: number | null): number {
   if (age === null) return 45;
@@ -323,28 +365,37 @@ function actionFor(p: SnapshotProtocol, capital: number, chain: string): string 
 function routineFor(p: SnapshotProtocol, chain: string): string {
   const c = (p.category ?? '').toLowerCase();
   const name = p.name;
-  if (c.includes('dex') || c.includes('swap')) return `Rebalance the ${name} position once a week and make one small swap (about $10) so the wallet keeps trading history. Cost: about $1 of gas a week. Time: 10 minutes a week.`;
-  if (c.includes('lend') || c.includes('cdp')) return `Add or repay a small amount (about $10) on ${name} once a week so the position shows continuing use, not a parked deposit. Cost: about $1 of gas a week. Time: 5 minutes a week.`;
-  if (c.includes('deriv') || c.includes('perpetual') || c.includes('basis')) return `Roll the hedge on ${name} once a week and keep margin above twice the maintenance level. Cost: about $2 of fees a week. Time: 10 minutes a week.`;
-  if (c.includes('bridge')) return `Bridge a small amount (about $10) through ${name} once a week, alternating direction. Cost: about $1 of fees a week. Time: 10 minutes a week.`;
-  return `Make one small interaction with ${name} on ${chain} every week (about $10 in or out) so the wallet's history spans months, not one day. Cost: about $1 of gas a week. Time: 5 minutes a week.`;
+  const weekly = weeklyGasFor(chain);
+  if (c.includes('dex') || c.includes('swap')) return `Rebalance the ${name} position once a week and make one small swap (about $10) so the wallet keeps trading history. Cost: about $${weekly} of gas a week. Time: 10 minutes a week.`;
+  if (c.includes('lend') || c.includes('cdp')) return `Add or repay a small amount (about $10) on ${name} once a week so the position shows continuing use, not a parked deposit. Cost: about $${weekly} of gas a week. Time: 5 minutes a week.`;
+  if (c.includes('deriv') || c.includes('perpetual') || c.includes('basis')) return `Roll the hedge on ${name} once a week and keep margin above twice the maintenance level. Cost: about $${weekly + 1} of fees a week. Time: 10 minutes a week.`;
+  if (c.includes('bridge')) return `Bridge a small amount (about $10) through ${name} once a week, alternating direction. Cost: about $${weekly} of fees a week. Time: 10 minutes a week.`;
+  return `Make one small interaction with ${name} on ${chain} every week (about $10 in or out) so the wallet's history spans months, not one day. Cost: about $${weekly} of gas a week. Time: 5 minutes a week.`;
 }
 
 /**
- * A protocol's farm plan: five steps, each an action with a cost and a time,
- * derived from the protocol's own record (category, chains, TVL, age).
+ * A protocol's farm plan: six steps, each an action with a cost and a time,
+ * derived from the protocol's own record (category, chains, TVL, age). The
+ * fifth step totals the plan — capital plus every gas bill over the hold —
+ * and names the category's main risk, so a reader sees the whole price of
+ * farming before starting, not step by step.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): string[] {
   const chain = chainOf(p);
   const cheap = cheapChainOf(p);
   const capital = capitalFor(p);
   const hold = holdDaysFor(age);
-  const gas = cheap === 'Ethereum' ? 12 : 3;
+  const fundGas = gasFor(cheap);
+  const setupGas = gasFor(chain);
+  const weekly = weeklyGasFor(chain);
+  const weeks = Math.max(1, Math.ceil(hold / 7));
+  const totalGas = fundGas + setupGas + weekly * weeks;
   return [
-    `Start a fresh wallet for ${p.name} alone and fund it on ${cheap}, the cheapest chain it runs on. Cost: about $${gas} of gas to make the first transaction. Time: 10 minutes, once.`,
-    actionFor(p, capital, chain) + ` Cost: $${capital} of capital plus about $${gas} of gas. Time: 15 minutes to set up.`,
+    `Start a fresh wallet for ${p.name} alone and fund it on ${cheap}, the cheapest chain it runs on. Cost: about $${fundGas} of gas to make the first transaction. Time: 10 minutes, once.`,
+    actionFor(p, capital, chain) + ` Cost: $${capital} of capital plus about $${setupGas} of gas. Time: 15 minutes to set up.`,
     routineFor(p, chain),
     `Hold the position for at least ${hold} days and check ${p.name}'s own announcements every Monday for a points program or a launch post. Cost: nothing beyond the weekly step. Time: 5 minutes a week.`,
+    `Budget and risk, all-in: $${capital} of capital plus about $${totalGas} of gas over the ${hold}-day hold (funding $${fundGas}, set-up $${setupGas}, then about $${weekly} a week for ${weeks} weeks). The risks are ${riskFor(p)}. The token may never launch; if it does not, the position's own yield is the only return.`,
     `When ${p.name} announces a token, claim from this same wallet in the first week and keep the transaction receipts; wallets that farmed before the announcement are the ones a launch rewards. Cost: the claim fee only, usually under $5. Time: 20 minutes, once.`,
   ];
 }
@@ -358,6 +409,14 @@ export interface LiveRow {
   tvl_usd: number;
   mcap_usd: number;
   multiple: number;
+}
+
+/** The radar score's four parts, in points, summing to the row's score. */
+export interface ScoreParts {
+  value: number;
+  momentum: number;
+  scale: number;
+  seasoning: number;
 }
 
 export interface RadarData {
@@ -376,7 +435,9 @@ export interface RadarData {
     season_tau_years: number;
     age_stand_in_days: number;
     category_multiples: CategoryMultiple[];
+    category_medians: CategoryMultiple[];
   };
+  category_peers: Record<string, LiveRow[]>;
   summary: {
     protocols: number;
     watchlist: number;
@@ -399,6 +460,7 @@ export interface RadarData {
     watchlist: boolean;
     implied_value_usd: number;
     radar_score: number;
+    score_parts: ScoreParts;
     multiple: number;
     multiple_own: boolean;
     growth_mult: number;
@@ -440,15 +502,21 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
   const minT = Math.min(...tvls);
   const maxT = Math.max(...tvls);
 
+  const partsBySlug = new Map<string, ScoreParts>();
   const board: BoardRow[] = scored.map((x, i) => {
     const g = clamp(finite(x.p.change_7d, 0), MODEL.growth_floor, MODEL.growth_cap);
-    const score = Math.round(
-      100 *
-        (0.45 * logNorm(x.s.implied, minI, maxI) +
-          0.25 * ((g - MODEL.growth_floor) / (MODEL.growth_cap - MODEL.growth_floor)) +
-          0.15 * logNorm(x.p.tvl_usd, minT, maxT) +
-          0.15 * ((x.s.season_mult - MODEL.season_base) / MODEL.season_range)),
-    );
+    const fValue = logNorm(x.s.implied, minI, maxI);
+    const fMomentum = (g - MODEL.growth_floor) / (MODEL.growth_cap - MODEL.growth_floor);
+    const fScale = logNorm(x.p.tvl_usd, minT, maxT);
+    const fSeason = (x.s.season_mult - MODEL.season_base) / MODEL.season_range;
+    const score = Math.round(100 * (0.45 * fValue + 0.25 * fMomentum + 0.15 * fScale + 0.15 * fSeason));
+    // The score's parts in points, for the detail view's breakdown bars: the
+    // first three are rounded and the seasoning part takes the remainder, so
+    // the four bars always sum to the printed score.
+    const value = Math.round(45 * fValue);
+    const momentum = Math.round(25 * fMomentum);
+    const scale = Math.round(15 * fScale);
+    partsBySlug.set(x.p.slug, { value, momentum, scale, seasoning: clamp(score - value - momentum - scale, 0, 15) });
     return {
       rank: i + 1,
       slug: x.p.slug,
@@ -492,6 +560,38 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
       multiple: round4(p.mcap_usd! / p.tvl_usd),
     }));
 
+  // The traded peers behind each category's multiple, largest market cap
+  // first, for the detail view: the judge and the reader can see the actual
+  // protocols and figures a row's multiple was medianed from, not just the
+  // resulting number. Same ratio filter as categoryMultiples.
+  const peersByCategory = new Map<string, LiveRow[]>();
+  for (const p of snapshot.protocols) {
+    if (p.mcap_usd === null || p.mcap_usd <= 0 || p.tvl_usd <= 0) continue;
+    const ratio = p.mcap_usd / p.tvl_usd;
+    if (ratio < MODEL.ratio_floor || ratio > MODEL.ratio_cap) continue;
+    const key = p.category ?? 'Uncategorised';
+    const list = peersByCategory.get(key);
+    const row: LiveRow = {
+      slug: p.slug,
+      name: p.name,
+      symbol: p.symbol,
+      category: p.category,
+      tvl_usd: p.tvl_usd,
+      mcap_usd: p.mcap_usd,
+      multiple: round4(ratio),
+    };
+    if (list === undefined) peersByCategory.set(key, [row]);
+    else list.push(row);
+  }
+  const categoryPeers: Record<string, LiveRow[]> = {};
+  for (const [category, list] of peersByCategory) {
+    list.sort((a, b) => b.mcap_usd - a.mcap_usd);
+    categoryPeers[category] = list.slice(0, 8);
+  }
+  const categoryMedians: CategoryMultiple[] = [...table.byCategory.values()].sort(
+    (a, b) => b.peers - a.peers || (a.category < b.category ? -1 : 1),
+  );
+
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -508,7 +608,9 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
       season_tau_years: MODEL.season_tau_years,
       age_stand_in_days: ageStandIn,
       category_multiples: effectiveMultiples(table),
+      category_medians: categoryMedians,
     },
+    category_peers: categoryPeers,
     summary: {
       protocols: snapshot.protocols.length,
       watchlist: snapshot.watchlist.length,
@@ -531,6 +633,7 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
       watchlist: r.watchlist,
       implied_value_usd: r.implied_value_usd,
       radar_score: r.radar_score,
+      score_parts: partsBySlug.get(r.slug)!,
       multiple: r.model.category_multiple,
       multiple_own: r.model.multiple_from_category,
       growth_mult: r.model.growth_multiplier,
