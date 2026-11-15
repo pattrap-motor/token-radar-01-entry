@@ -212,7 +212,7 @@
     var body = rows.map(function (r) {
       var moveCls = r.change_7d === null ? 'flat' : r.change_7d > 0 ? 'up' : r.change_7d < 0 ? 'down' : 'flat';
       return el('tr', { onclick: function () { location.hash = '#/p/' + r.slug; } },
-        el('td', { class: 'rank', text: '#' + r.rank }),
+        el('td', { class: 'rank' + (r.rank <= 3 ? ' top' : ''), text: '#' + r.rank }),
         el('td', { class: 'proto' },
           el('div', null, el('span', { class: 'name', text: r.name }), badge(r)),
           el('div', { class: 'sub', text: (r.category || 'Uncategorised') + ' · tracked ' + fmtAge(r.age_days) + ' with no token recorded' })
@@ -315,20 +315,28 @@
       kv('Tracked by DefiLlama since', row.listed_at || 'unreported'),
       kv('Running with no token recorded', fmtAge(row.age_days)),
       kv('Chains', row.chains.join(', ') || 'unreported', true),
-      kv('Radar score', row.radar_score + ' / 100')
+      kv('Radar score', row.radar_score + ' / 100'),
+      scoreParts(row)
     );
     var multNote = row.multiple_own
       ? 'its category\'s median, shrunk toward the global median by peer count'
       : 'global median (no traded protocol in its category carries a market cap)';
-    var model = el('div', { class: 'card' },
+    var raw = null;
+    (MODEL.category_medians || []).forEach(function (cm) { if (cm.category === (row.category || 'Uncategorised')) raw = cm; });
+    var modelKids = [
       el('h3', { text: 'How the value is built' }),
       kv('TVL (the base)', fmtUsd(row.tvl_usd)),
       kv('Category multiple x' + row.multiple.toFixed(2), multNote, false, true),
-      kv('Momentum x' + check.growthMult.toFixed(4), 'seven-day TVL change, clamped'),
-      kv('Seasoning x' + check.seasonMult.toFixed(4), 'age with no token recorded'),
-      kv('Implied launch value', fmtUsd(row.implied_value_usd)),
-      el('div', { class: 'check', text: 'This page recomputes the row from those figures: ' + fmtUsd(check.implied) + (check.implied === row.implied_value_usd ? ' — matches board.json exactly.' : ' — differs from board.json; trust board.json.') })
-    );
+    ];
+    if (raw) {
+      modelKids.push(kv('Raw category median x' + raw.multiple.toFixed(2), 'median of ' + raw.peers + ' traded peer' + (raw.peers === 1 ? '' : 's') + ' with a market cap', false, true));
+      modelKids.push(kv('Shrinkage', 'peer weight ' + raw.peers + '/(' + raw.peers + ' + 3) toward the global median x' + MODEL.global_multiple.toFixed(2), false, true));
+    }
+    modelKids.push(kv('Momentum x' + check.growthMult.toFixed(4), 'seven-day TVL change, clamped'));
+    modelKids.push(kv('Seasoning x' + check.seasonMult.toFixed(4), 'age with no token recorded'));
+    modelKids.push(kv('Implied launch value', fmtUsd(row.implied_value_usd)));
+    modelKids.push(el('div', { class: 'check', text: 'This page recomputes the row from those figures: ' + fmtUsd(check.implied) + (check.implied === row.implied_value_usd ? ' — matches board.json exactly.' : ' — differs from board.json; trust board.json.') }));
+    var model = el('div', { class: 'card' }, modelKids);
     var plan = el('div', { class: 'card' },
       el('h3', { text: 'Farm plan' }),
       el('ol', { class: 'plan' }, row.farm_steps.map(function (s) { return el('li', { text: s }); }))
@@ -342,12 +350,65 @@
             return a;
           }))
     );
-    var grid = el('div', { class: 'detail-grid' }, facts, model);
+    var grid = el('div', { class: 'detail-grid' },
+      el('div', { class: 'col' }, facts, plan),
+      el('div', { class: 'col' }, model, tradedCard(row, raw), peerCard)
+    );
     app.appendChild(grid);
-    var grid2 = el('div', { class: 'detail-grid' }, plan, peerCard);
-    app.appendChild(grid2);
     app.appendChild(footer());
     app.setAttribute('aria-busy', 'false');
+  }
+
+  // The score's four parts as bars, so the number on the board is explained
+  // where it is printed: value size out of 45, momentum out of 25, TVL scale
+  // and seasoning out of 15 each, summing to the score itself.
+  function scoreParts(row) {
+    var parts = row.score_parts;
+    if (!parts) return null;
+    function bar(label, pts, max) {
+      return el('div', { class: 'part' },
+        el('span', { class: 'pl', text: label }),
+        el('span', { class: 'pbar' }, el('i', { style: 'width:' + Math.round((pts / max) * 100) + '%' })),
+        el('span', { class: 'pv', text: pts + '/' + max })
+      );
+    }
+    return el('div', { class: 'parts' },
+      bar('Implied value', parts.value, 45),
+      bar('7d momentum', parts.momentum, 25),
+      bar('TVL scale', parts.scale, 15),
+      bar('Seasoning', parts.seasoning, 15)
+    );
+  }
+
+  // The traded protocols a row's category multiple was medianed from, with
+  // the snapshot's own figures: the model's evidence, on the page, beside
+  // the arithmetic that used it.
+  function tradedCard(row, raw) {
+    var cat = row.category || 'Uncategorised';
+    var peers = (DATA.category_peers && DATA.category_peers[cat]) || [];
+    var kids = [el('h3', { text: 'Traded peers behind the multiple' })];
+    if (peers.length === 0) {
+      kids.push(el('p', { class: 'flat', text: 'No traded protocol in this category carries a market cap in the snapshot, so this row is priced at the global median of ' + MODEL.global_peers + ' traded protocols, x' + MODEL.global_multiple.toFixed(2) + '.' }));
+      return el('div', { class: 'card' }, kids);
+    }
+    var body = peers.map(function (p) {
+      return el('tr', null,
+        el('td', null, el('b', { text: p.name }), ' ', el('span', { class: 'flat', text: p.symbol || '' })),
+        el('td', { class: 'money num', text: fmtUsd(p.tvl_usd) }),
+        el('td', { class: 'money num', text: fmtUsd(p.mcap_usd) }),
+        el('td', { class: 'money num', text: 'x' + p.multiple.toFixed(2) })
+      );
+    });
+    kids.push(el('table', { class: 'live mini' },
+      el('thead', null, el('tr', null,
+        el('th', { text: 'Traded peer' }), el('th', { class: 'num', text: 'TVL' }),
+        el('th', { class: 'num', text: 'Market cap' }), el('th', { class: 'num', text: 'Price / TVL' })
+      )),
+      el('tbody', null, body)
+    ));
+    var total = raw ? raw.peers : peers.length;
+    kids.push(el('p', { class: 'note', text: (total > peers.length ? 'The ' + peers.length + ' largest of ' + total + ' priced peers by market cap. ' : '') + 'The category multiple above is the median of these ratios, shrunk toward the global median by peer count; every figure is the snapshot\'s own.' }));
+    return el('div', { class: 'card' }, kids);
   }
 
   function kv(k, v, cls, plain) {
