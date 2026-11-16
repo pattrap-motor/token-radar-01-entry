@@ -81,6 +81,7 @@ td.proto .sub { color: var(--ink-faint); font-size: 11.5px; margin-top: 1px; }
 .badge.early { background: var(--teal-dim); color: var(--teal); border: 1px solid #1d5c54; }
 td.money { font-family: var(--mono); font-size: 13.5px; white-space: nowrap; }
 td.implied { font-family: var(--mono); font-size: 14px; color: var(--teal); font-weight: 650; white-space: nowrap; }
+td.implied .range { color: var(--ink-faint); font-size: 10.5px; font-weight: 400; margin-top: 1px; }
 td.move { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
 .up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--ink-faint); }
 td.chains { color: var(--ink-dim); font-size: 12.5px; max-width: 170px; }
@@ -101,16 +102,17 @@ table.live td { padding: 6px 12px; border-bottom: 1px solid var(--line-soft); fo
 table.live td.money { font-size: 13px; }
 
 /* Detail view */
-.back { display: inline-block; margin-bottom: 12px; font-size: 13px; }
-.detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; }
+.back { display: inline-block; margin-bottom: 8px; font-size: 13px; }
+.detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 20px; }
 .detail-head h2 { font-size: 24px; margin: 0; }
 .detail-head .sub { color: var(--ink-dim); margin-top: 4px; font-size: 13px; }
 .detail-head .big { text-align: right; }
 .detail-head .big .k { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 1.1px; }
 .detail-head .big .v { font-family: var(--mono); font-size: 30px; color: var(--teal); font-weight: 700; }
-.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; align-items: start; }
+.detail-head .big .rline { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); margin-top: 3px; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; align-items: start; }
 .col { display: flex; flex-direction: column; gap: 12px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; }
 .card p { margin: 0 0 6px; }
 .card p.note { color: var(--ink-faint); font-size: 12px; margin: 8px 0 0; }
 table.live.mini th { padding: 6px 10px; }

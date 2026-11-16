@@ -35,17 +35,30 @@
   // page recomputes a row's implied value from the snapshot figures the row
   // carries and the model's printed constants, and the detail view checks it
   // against the value board.json holds, so code and board cannot drift.
+  // The range is the same pricing with the category's shrunk quartile
+  // multiples (its middle half of peers) in place of the median.
   function round4(n) { return Math.round(n * 1e4) / 1e4; }
   function impliedOf(row) {
     var growth = clamp(row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d, MODEL.growth_floor, MODEL.growth_cap);
     var growthMult = round4(1 + (growth / 100) * MODEL.growth_weight);
     var age = row.age_days === null || row.age_days === undefined ? MODEL.age_stand_in_days : row.age_days;
     var seasonMult = round4(MODEL.season_base + MODEL.season_range * (1 - Math.exp(-(age / 365.25) / MODEL.season_tau_years)));
-    return {
-      implied: Math.max(1, Math.round(row.tvl_usd * row.multiple * growthMult * seasonMult)),
-      growthMult: growthMult,
-      seasonMult: seasonMult,
-    };
+    var implied = Math.max(1, Math.round(row.tvl_usd * row.multiple * growthMult * seasonMult));
+    var low = Math.min(implied, Math.max(1, Math.round(row.tvl_usd * row.multiple_low * growthMult * seasonMult)));
+    var high = Math.max(implied, Math.round(row.tvl_usd * row.multiple_high * growthMult * seasonMult));
+    return { implied: implied, low: low, high: high, growthMult: growthMult, seasonMult: seasonMult };
+  }
+
+  // How far a row's evidence agrees, read off its peer count and the raw
+  // spread of its category's middle half: the words the detail view prints
+  // beside the range, so a thin price is labelled where it is shown.
+  function evidenceOf(row) {
+    var peers = row.multiple_peers;
+    var spread = row.peer_q1 > 0 ? row.peer_q3 / row.peer_q1 : Infinity;
+    if (peers >= 8 && spread <= 4) return 'firm — many priced peers, and their middle half agrees';
+    if (peers >= 3 && spread <= 8) return 'fair — a real peer set, but its middle half disagrees';
+    if (peers < 3) return 'thin — priced off ' + peers + ' priced peer' + (peers === 1 ? '' : 's') + '; read the point as a sketch, the range as the claim';
+    return 'scattered — the peers disagree widely; the range matters more than the point';
   }
 
   function el(tag, attrs) {
@@ -128,8 +141,10 @@
       el('p', null,
         'No names are picked by hand. For every protocol whose token already trades, the snapshot gives a market cap and a TVL, so a price-to-TVL multiple; ',
         el('b', { text: 'a category is priced at the median multiple of its traded protocols' }),
-        ', shrunk toward the global median when the category has few priced peers (the snapshot carries a market cap for barely a third of its traded protocols). A pre-token protocol starts at its TVL times its category multiple, is tilted by its seven-day TVL momentum, and is lifted by a seasoning term the longer it has run with no token recorded. Protocols whose token already trades are set aside as the comparables (bottom of the page), never ranked as finds.'),
-      el('span', { class: 'formula', text: 'implied value  =  TVL  x  category multiple  x  momentum (7d, clamped -40%..+60%)  x  seasoning (0.80x -> 1.25x with age)' }),
+        ', shrunk toward the global median when the category has few priced peers (the snapshot carries a market cap for barely a third of its traded protocols). A pre-token protocol starts at its TVL times its category multiple, is tilted by its seven-day TVL momentum, and is lifted by a seasoning term the longer it has run with no token recorded. Protocols whose token already trades are set aside as the comparables (bottom of the page), never ranked as finds. ',
+        el('b', { text: 'Every row also carries a range' }),
+        ': the same pricing run with the category\'s middle half of peer multiples (first to third quartile, shrunk the same way), so the board states how far its own evidence agrees — a price off many agreeing peers reads firm, and the top row, priced off a single peer, carries the wide range that earns.'),
+      el('span', { class: 'formula', text: 'implied value  =  TVL  x  category multiple  x  momentum (7d, clamped -40%..+60%)  x  seasoning (0.80x -> 1.25x with age)  ·  range = the same with the peer multiples\' middle half' }),
       el('div', { class: 'chips' }, chips)
     );
   }
@@ -221,7 +236,10 @@
         el('td', { class: 'money num', text: fmtUsd(r.tvl_usd) }),
         el('td', { class: 'num' }, spark(r)),
         el('td', { class: 'move num ' + moveCls, text: fmtPct(r.change_7d) }),
-        el('td', { class: 'implied num', text: fmtUsd(r.implied_value_usd) }),
+        el('td', { class: 'implied num' },
+          el('div', { text: fmtUsd(r.implied_value_usd) }),
+          el('div', { class: 'sub range', text: 'range ' + fmtUsd(r.implied_low_usd) + ' – ' + fmtUsd(r.implied_high_usd) })
+        ),
         el('td', { class: 'money num', text: 'x' + r.multiple.toFixed(2) }),
         el('td', { class: 'scorecell num' },
           el('span', { class: 'scoreval', text: String(r.radar_score) }),
@@ -305,7 +323,8 @@
       ),
       el('div', { class: 'big' },
         el('div', { class: 'k', text: 'Implied launch value' }),
-        el('div', { class: 'v', text: fmtUsd(row.implied_value_usd) })
+        el('div', { class: 'v', text: fmtUsd(row.implied_value_usd) }),
+        el('div', { class: 'rline', text: 'range ' + fmtUsd(row.implied_low_usd) + ' – ' + fmtUsd(row.implied_high_usd) + ' · evidence: ' + evidenceOf(row).split(' — ')[0] })
       )
     ));
     var facts = el('div', { class: 'card' },
@@ -335,7 +354,11 @@
     modelKids.push(kv('Momentum x' + check.growthMult.toFixed(4), 'seven-day TVL change, clamped'));
     modelKids.push(kv('Seasoning x' + check.seasonMult.toFixed(4), 'age with no token recorded'));
     modelKids.push(kv('Implied launch value', fmtUsd(row.implied_value_usd)));
-    modelKids.push(el('div', { class: 'check', text: 'This page recomputes the row from those figures: ' + fmtUsd(check.implied) + (check.implied === row.implied_value_usd ? ' — matches board.json exactly.' : ' — differs from board.json; trust board.json.') }));
+    modelKids.push(kv('Value range', fmtUsd(row.implied_low_usd) + ' – ' + fmtUsd(row.implied_high_usd), false, true));
+    modelKids.push(kv('Peer spread', 'the middle half of the ' + row.multiple_peers + ' priced peer' + (row.multiple_peers === 1 ? '' : 's') + ' runs x' + row.peer_q1.toFixed(2) + ' to x' + row.peer_q3.toFixed(2) + '; the range prices with those quartiles, shrunk like the median', false, true));
+    modelKids.push(kv('Evidence', evidenceOf(row), false, true));
+    var matches = check.implied === row.implied_value_usd && check.low === row.implied_low_usd && check.high === row.implied_high_usd;
+    modelKids.push(el('div', { class: 'check', text: 'This page recomputes the row and its range from those figures: ' + fmtUsd(check.implied) + ', range ' + fmtUsd(check.low) + ' – ' + fmtUsd(check.high) + (matches ? ' — matches board.json exactly.' : ' — differs from board.json; trust board.json.') }));
     var model = el('div', { class: 'card' }, modelKids);
     var plan = el('div', { class: 'card' },
       el('h3', { text: 'Farm plan' }),
