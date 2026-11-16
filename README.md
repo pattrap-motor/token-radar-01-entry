@@ -29,10 +29,18 @@ Comparables, from the snapshot's own figures only — no hand-picked names:
 3. Momentum: the 7-day TVL change, clamped to -40%..+60%, tilts the base.
 4. Seasoning: a saturating age term (0.80x -> 1.25x) rewards time run with
    no token recorded.
+5. The range: each category's peer multiples also give a middle half
+   (first to third quartile), shrunk toward the global middle half by the
+   same weight. Pricing a row's TVL with those quartiles gives a low and
+   a high around the point value, so the board states how far its own
+   evidence agrees — a row priced off one peer carries a wide range, a
+   row priced off many agreeing peers a narrow one.
 
 `lib/model.ts` holds the model; `dashboard/app.js` carries the same
 arithmetic and recomputes every row it draws, so page and board cannot
 drift. Farm plans are generated per protocol from its category, chains,
-TVL and age, each step with a cost and a time.
+TVL, age and seven-day momentum, each step with a cost and a time; a
+sharp TVL move or a run across four or more chains earns the plan an
+extra step of its own.
 
 MIT licensed.
