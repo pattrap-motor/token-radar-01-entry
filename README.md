@@ -1,3 +1,7 @@
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/pattrap-motor/token-radar-01-entry/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard)
+[![reward](https://make.fun/badge/token-radar-01/pattrap-motor/token-radar-01-entry/reward.svg)](https://make.fun/bounty/token-radar-01)
+
 # Launch Radar — token launch radar (make.fun token-radar-01)
 
 A Node 22 program (standard library only) that reads the competition's
